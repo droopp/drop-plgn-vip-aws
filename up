@@ -1,0 +1,91 @@
+#!/usr/bin/python
+
+import sys
+import time
+import subprocess
+import os
+
+
+# API
+def log(m):
+    sys.stderr.write("{}: {}\n".format(time.time(), m))
+    sys.stderr.flush()
+
+
+def retry(fn):
+
+    def wrap(*args):
+
+        while 1:
+            try:
+                r = fn(*args)
+                return r
+            except Exception as e:
+                log("retry...{}: {}".format(fn, e))
+                time.sleep(1)
+                continue
+
+    return wrap
+
+
+@retry
+def make_private_vip(private_ip):
+    instance_id = subprocess.check_output(['/usr/bin/curl -s http://169.254.169.254/latest/meta-data/instance-id'], shell=True)
+    interface_id = subprocess.check_output(['aws ec2 describe-instances --instance-ids %s | jq .Reservations[].Instances[].NetworkInterfaces[].NetworkInterfaceId' % instance_id], shell=True).strip().strip('"')
+
+    #  Assign private IP to the master instance:
+    subprocess.check_call(['aws ec2 assign-private-ip-addresses --allow-reassignment --network-interface-id %s --private-ip-addresses %s' % (interface_id, private_ip)], shell=True)
+
+    return instance_id
+
+
+@retry
+def make_eip(instance_id, iface, private_ip, public_ip):
+    subnet_id = subprocess.check_output(['aws ec2 describe-instances --instance-ids %s | jq .Reservations[].Instances[].NetworkInterfaces[].SubnetId' % instance_id], shell=True).strip().strip('"').strip().strip('"')
+    subnet_cidr = subprocess.check_output(['aws ec2 describe-subnets --subnet-ids %s | jq .Subnets[].CidrBlock' % subnet_id], shell=True).strip().strip('"')
+    cidr_prefix = subnet_cidr.split("/")[1]
+
+    # Add the private IP address to the default network interface
+
+    try:
+        subprocess.check_call(['sudo ip addr del dev %s %s/%s' % (iface, private_ip, cidr_prefix)], shell=True)
+        subprocess.check_call(['sudo ip addr add dev %s %s/%s' % (iface, private_ip, cidr_prefix)], shell=True)
+    except Exception as e:
+        log("addr dev {}".format(e))
+
+    # EIP
+    eip = subprocess.check_output(['aws ec2 associate-address --allow-reassociation --instance-id %s --private-ip-address %s --public-ip %s|jq .AssociationId' % (instance_id, private_ip, public_ip)], shell=True).strip().strip('"').strip().strip('"')
+
+    return eip
+
+
+def make_vip(iface, private_ip):
+
+    cmds = [
+        "sudo ifconfig {iface}:0 down",
+        "sudo ifconfig {iface}:0 {vip} netmask 255.255.255.255 broadcast {vip}",
+        "sudo arping -I {iface} -c 2 -s {vip} {vip}"
+    ]
+
+    for c in cmds:
+        subprocess.check_call([c.format({"iface": iface, "vip": private_ip})], shell=True)
+
+
+def main(iface, private_ip):
+
+    log("make private vip {} {}".format(iface, private_ip))
+
+    instance_id = make_private_vip(private_ip)
+    log("make private vip - instance_id {}".format(instance_id))
+
+    public_ip = os.environ.get("DROP_AWS_EIP")
+
+    if public_ip is None:
+        log("EIP not defined..")
+        make_vip(iface, private_ip)
+    else:
+        make_eip(instance_id, iface, private_ip, public_ip)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1], sys.argv[2])
