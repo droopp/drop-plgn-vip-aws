@@ -29,8 +29,7 @@ def retry(fn):
 
 
 @retry
-def down_eip(iface, private_ip, public_ip):
-    instance_id = subprocess.check_output(['/usr/bin/curl -s http://169.254.169.254/latest/meta-data/instance-id'], shell=True)
+def down_eip(instance_id, iface, private_ip, public_ip):
 
     subnet_id = subprocess.check_output(['aws ec2 describe-instances --instance-ids %s | jq .Reservations[].Instances[].NetworkInterfaces[].SubnetId' % instance_id], shell=True).strip().strip('"').strip().strip('"')
     subnet_cidr = subprocess.check_output(['aws ec2 describe-subnets --subnet-ids %s | jq .Subnets[].CidrBlock' % subnet_id], shell=True).strip().strip('"')
@@ -43,20 +42,45 @@ def down_eip(iface, private_ip, public_ip):
     except Exception as e:
         log("addr dev {}".format(e))
 
+    # EIP
+    # eip = subprocess.check_output(['aws ec2 disassociate-address --public-ip %s' % (public_ip)], shell=True).strip().strip('"').strip().strip('"')
 
-def down_vip(iface, private_ip):
+
+@retry
+def down_private_vip(private_ip):
+
+    instance_id = subprocess.check_output(['/usr/bin/curl -s http://169.254.169.254/latest/meta-data/instance-id'], shell=True)
+    interface_id = subprocess.check_output(['aws ec2 describe-instances --instance-ids %s | jq .Reservations[].Instances[].NetworkInterfaces[].NetworkInterfaceId' % instance_id], shell=True).strip().strip('"')
+
+    ret = subprocess.check_output(['aws ec2 unassign-private-ip-addresses --network-interface-id %s --private-ip-addresses %s ; exit 0' % (interface_id, private_ip)], shell=True, stderr=subprocess.STDOUT).strip()
+
+    log("unassign error: {}".format(ret))
+
+    if ret.find("addresses are not assigned to interface") == -1:
+        raise Exception(ret)
+
+    return instance_id
+
+
+def down_vip(iface, private_vip):
 
     cmds = [
         "sudo ifconfig {iface}:0 down",
     ]
 
     for c in cmds:
-        subprocess.check_call([c.format(**{"iface": iface, "vip": private_ip})], shell=True)
+        try:
+            subprocess.check_call([c.format(**{"iface": iface, "vip": private_vip})], shell=True)
+        except Exception as e:
+            log(e)
 
 
 def main(iface, private_ip):
 
     log("down private vip {} {}".format(iface, private_ip))
+
+    instance_id = down_private_vip(private_ip)
+    log("down private vip - instance_id {}".format(instance_id))
 
     public_ip = os.environ.get("DROP_AWS_EIP")
 
@@ -64,7 +88,7 @@ def main(iface, private_ip):
         log("EIP not defined..")
         down_vip(iface, private_ip)
     else:
-        down_eip(iface, private_ip, public_ip)
+        down_eip(instance_id, iface, private_ip, public_ip)
 
 
 if __name__ == "__main__":

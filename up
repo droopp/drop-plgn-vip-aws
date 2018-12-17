@@ -47,11 +47,16 @@ def make_eip(instance_id, iface, private_ip, public_ip):
 
     # Add the private IP address to the default network interface
 
-    try:
-        subprocess.check_call(['sudo ip addr del dev %s %s/%s' % (iface, private_ip, cidr_prefix)], shell=True)
-        subprocess.check_call(['sudo ip addr add dev %s %s/%s' % (iface, private_ip, cidr_prefix)], shell=True)
-    except Exception as e:
-        log("addr dev {}".format(e))
+    cmds = [
+        "sudo ip addr del dev {iface} {private_ip}/{cidr_prefix}",
+        "sudo ip addr add dev {iface} {private_ip}/{cidr_prefix}"
+    ]
+
+    for c in cmds:
+        try:
+            subprocess.check_call([c.format(**{"iface": iface, "private_ip": private_ip, "cidr_prefix": cidr_prefix})], shell=True)
+        except Exception as e:
+            log(e)
 
     # EIP
     eip = subprocess.check_output(['aws ec2 associate-address --allow-reassociation --instance-id %s --private-ip-address %s --public-ip %s|jq .AssociationId' % (instance_id, private_ip, public_ip)], shell=True).strip().strip('"').strip().strip('"')
@@ -68,7 +73,10 @@ def make_vip(iface, private_ip):
     ]
 
     for c in cmds:
-        subprocess.check_call([c.format({"iface": iface, "vip": private_ip})], shell=True)
+        try:
+            subprocess.check_call([c.format(**{"iface": iface, "vip": private_ip})], shell=True)
+        except Exception as e:
+            log(e)
 
 
 def main(iface, private_ip):
