@@ -79,6 +79,9 @@ def main(iface, private_ip):
 
     log("down private vip {} {}".format(iface, private_ip))
 
+    if private_ip == "127.0.0.1":
+        return
+
     instance_id = down_private_vip(private_ip)
     log("down private vip - instance_id {}".format(instance_id))
 
