@@ -23,6 +23,7 @@ def retry(fn):
             except Exception as e:
                 log("retry...{}: {}".format(fn, e))
                 time.sleep(1)
+                sys.exit(1)
                 continue
 
     return wrap
@@ -78,9 +79,6 @@ def down_vip(iface, private_vip):
 def main(iface, private_ip):
 
     log("down private vip {} {}".format(iface, private_ip))
-
-    if private_ip == "127.0.0.1":
-        return
 
     instance_id = down_private_vip(private_ip)
     log("down private vip - instance_id {}".format(instance_id))
