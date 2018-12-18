@@ -86,13 +86,12 @@ def main(iface, private_ip):
 
     # clear vip if none
     if private_ip == "none":
-        return
-        # private_ip = subprocess.check_output(["ip addr|grep secondary|awk '{print $2}'; exit 0"], shell=True, stderr=subprocess.STDOUT).strip().split("/")[0]
-        # if private_ip == "":
-        #     return
-        # else:
-        #     subprocess.check_output(["/opt/drop-plgn-vip-aws/down {} {}".format(iface, private_ip)], shell=True, stderr=subprocess.STDOUT)
-        #     return
+        private_ip = subprocess.check_output(["ip addr|grep secondary|awk '{print $2}'; exit 0"], shell=True, stderr=subprocess.STDOUT).strip().split("/")[0]
+        if private_ip == "":
+            return
+        else:
+            subprocess.check_output(["/opt/drop-plgn-vip-aws/down {} {}".format(iface, private_ip)], shell=True, stderr=subprocess.STDOUT)
+            return
 
     instance_id = make_private_vip(private_ip)
     log("make private vip - instance_id {}".format(instance_id))
